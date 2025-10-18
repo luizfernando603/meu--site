@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contato - Barbearia do Luiz</title>
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: linear-gradient(135deg, #2c2c2c, #444);
+      color: #fff;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      text-align: center;
+      padding: 2rem;
+      background-color: #000;
+    }
+    header h1 {
+      color: #f5b642;
+      margin-bottom: 0.5rem;
+    }
+    .container {
+      max-width: 600px;
+      margin: 2rem auto;
+      background: #333;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.5);
+    }
+    h2 {
+      color: #f5b642;
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+    input, textarea, button {
+      width: 100%;
+      padding: 0.8rem;
+      margin-bottom: 1rem;
+      border-radius: 8px;
+      border: none;
+      font-size: 1rem;
+    }
+    input, textarea {
+      background: #555;
+      color: #fff;
+    }
+    button {
+      background: #25D366;
+      color: #fff;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    button:hover {
+      background: #1ebe5d;
+    }
+    .horarios {
+      text-align: center;
+      margin-top: 2rem;
+      padding: 1rem;
+      background: #222;
+      border-radius: 8px;
+    }
+    .horarios p {
+      margin: 0.3rem 0;
+    }
+    footer {
+      text-align: center;
+      padding: 1rem;
+      background: #000;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Barbearia do Luiz 💈</h1>
+    <p>Seu estilo, seu momento!</p>
+  </header>
+
+  <div class="container">
+    <h2>Entre em Contato</h2>
+    <input type="text" id="nome" placeholder="Seu nome" required>
+    <input type="tel" id="telefone" placeholder="Seu WhatsApp" required>
+    <textarea id="mensagem" rows="4" placeholder="Mensagem ou agendamento" required></textarea>
+    <button onclick="enviarWhatsApp()">Enviar pelo WhatsApp</button>
+
+    <div class="horarios">
+      <h2>Horários de Atendimento</h2>
+      <div id="slots" class="slots"></div>
+      <p id="summary"></p>
+      <button id="adminBtn" style="background:#444;width:auto;padding:.5rem;border-radius:6px;margin-top:1rem;">Área Admin</button>
+
+      <div id="adminPanel" style="display:none;margin-top:1rem;background:#2b2b2b;padding:1rem;border-radius:8px;">
+        <h3 style="color:#f5b642;margin-top:0;">Painel Admin</h3>
+        <p>Senha: <strong>admin123</strong> (padrão). Use para marcar reservas quando receber 'SIM' no seu WhatsApp.</p>
+        <div id="pendingList"></div>
+        <div id="adminSlots"></div>
+        <button id="closeAdmin" style="margin-top:0.5rem;background:#f5b642;color:#000;">Fechar Admin</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <p>© 2025 Barbearia do Luiz — Todos os direitos reservados.</p>
+  </footer>
+
+  <script>
+    // ======= Configuração de horários =======
+    const SLOT_KEY = 'barbearia_reservas_v1';
+    const PENDING_KEY = 'barbearia_pendentes_v1';
+    const meuWhats = '+5527998183827'; // número do salão (com código do país+DDD)
+
+    // gera horários de 30 em 30 minutos entre 7:30 e 18:30
+    function gerarHorarios() {
+      const slots = [];
+      const start = new Date();
+      start.setHours(7,30,0,0);
+      const end = new Date();
+      end.setHours(18,30,0,0);
+      let cur = new Date(start);
+      while (cur <= end) {
+        const h = String(cur.getHours()).padStart(2,'0');
+        const m = String(cur.getMinutes()).padStart(2,'0');
+        slots.push(`${h}:${m}`);
+        cur.setMinutes(cur.getMinutes() + 30);
+      }
+      return slots;
+    }
+
+    function getStorage(key, defaultValue) {
+      try {
+        return JSON.parse(localStorage.getItem(key)) || defaultValue;
+      } catch { return defaultValue; }
+    }
+    function setStorage(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+
+    function renderSlots() {
+      const slotsDiv = document.getElementById('slots');
+      const adminSlots = document.getElementById('adminSlots');
+      const pendingList = document.getElementById('pendingList');
+      const slots = gerarHorarios();
+      const reservas = getStorage(SLOT_KEY, {});
+      const pendentes = getStorage(PENDING_KEY, {});
+
+      slotsDiv.innerHTML = '';
+      adminSlots.innerHTML = '';
+      pendingList.innerHTML = '';
+
+      let disponiveis = 0;
+      slots.forEach(slot => {
+        const status = reservas[slot] && reservas[slot].status ? reservas[slot].status : 'free';
+
+        const slotEl = document.createElement('div');
+        slotEl.style.display = 'flex';
+        slotEl.style.justifyContent = 'space-between';
+        slotEl.style.alignItems = 'center';
+        slotEl.style.margin = '0.4rem 0';
+
+        const label = document.createElement('div');
+        label.textContent = slot;
+
+        const btn = document.createElement('button');
+        btn.style.width = '48%';
+        btn.style.padding = '0.6rem';
+        btn.style.borderRadius = '8px';
+        btn.style.border = 'none';
+        btn.style.cursor = 'pointer';
+
+        if (status === 'reserved') {
+          btn.textContent = `Reservado (${reservas[slot].nome || '—'})`;
+          btn.disabled = true;
+          btn.style.background = '#aa2b2b';
+        } else if (pendentes[slot]) {
+          btn.textContent = `Pendente: ${pendentes[slot].nome}`;
+          btn.style.background = '#f39c12';
+        } else {
+          btn.textContent = 'Reservar';
+          btn.style.background = '#25D366';
+          disponiveis++;
+        }
+
+        btn.onclick = () => requestSlot(slot);
+
+        slotEl.appendChild(label);
+        slotEl.appendChild(btn);
+        slotsDiv.appendChild(slotEl);
+
+        // admin list
+        const aRow = document.createElement('div');
+        aRow.style.display = 'flex';
+        aRow.style.justifyContent = 'space-between';
+        aRow.style.margin = '0.25rem 0';
+        aRow.innerHTML = `<div>${slot} — ${status}</div>`;
+        const aBtn = document.createElement('button');
+        aBtn.style.marginLeft = '0.5rem';
+        aBtn.textContent = status === 'reserved' ? 'Liberar' : 'Marcar Reservado';
+        aBtn.onclick = () => {
+          if (status === 'reserved') {
+            delete reservas[slot];
+            setStorage(SLOT_KEY, reservas);
+            renderSlots();
+          } else {
+            const nome = prompt('Nome do cliente que confirmou (SIM):');
+            reservas[slot] = { status: 'reserved', nome: nome || '—', confirmAt: new Date().toISOString() };
+            // limpar pendente se existir
+            const p = getStorage(PENDING_KEY, {});
+            delete p[slot];
+            setStorage(PENDING_KEY, p);
+            setStorage(SLOT_KEY, reservas);
+            renderSlots();
+          }
+        };
+        aRow.appendChild(aBtn);
+        adminSlots.appendChild(aRow);
+      });
+
+      // render pendentes
+      const pend = getStorage(PENDING_KEY, {});
+      const keys = Object.keys(pend);
+      if (keys.length === 0) {
+        pendingList.innerHTML = '<p style="color:#bbb;">Nenhuma solicitação pendente.</p>';
+      } else {
+        keys.forEach(k => {
+          const item = pend[k];
+          const row = document.createElement('div');
+          row.style.borderTop = '1px solid #3a3a3a';
+          row.style.padding = '0.5rem 0';
+          row.innerHTML = `<strong>${k}</strong> — ${item.nome} — ${item.telefone}<br>${item.mensagem}`;
+          const btnConfirm = document.createElement('button');
+          btnConfirm.textContent = 'Confirmar (marcar reservado)';
+          btnConfirm.style.marginLeft = '0.5rem';
+          btnConfirm.onclick = () => {
+            const reservas2 = getStorage(SLOT_KEY, {});
+            reservas2[k] = { status: 'reserved', nome: item.nome, confirmAt: new Date().toISOString() };
+            setStorage(SLOT_KEY, reservas2);
+            const p2 = getStorage(PENDING_KEY, {});
+            delete p2[k];
+            setStorage(PENDING_KEY, p2);
+            renderSlots();
+          };
+          row.appendChild(btnConfirm);
+          pendingList.appendChild(row);
+        });
+      }
+
+      document.getElementById('summary').textContent = `Disponíveis hoje: ${disponiveis} / ${slots.length}`;
+    }
+
+    function requestSlot(slot) {
+      // pega dados do formulário (o usuário deve preencher antes)
+      const nome = document.getElementById('nome').value.trim();
+      const telefoneCliente = document.getElementById('telefone').value.trim();
+      const mensagem = document.getElementById('mensagem').value.trim();
+
+      if (!nome || !telefoneCliente) {
+        alert('Por favor, preencha seu nome e telefone antes de reservar.');
+        return;
+      }
+
+      // salva como pendente para o admin verificar
+      const pend = getStorage(PENDING_KEY, {});
+      pend[slot] = { nome, telefone: telefoneCliente, mensagem, requestedAt: new Date().toISOString() };
+      setStorage(PENDING_KEY, pend);
+
+      const texto = `Olá, gostaria de reservar o horário ${slot} na Barbearia do Luiz.\nNome: ${nome}.\nWhatsApp: ${telefoneCliente}.\nMensagem: ${mensagem || '-'}\nPor favor, responda SIM para confirmar.`;
+      const url = `https://wa.me/${meuWhats.replace(/[^0-9]/g,'')}?text=${encodeURIComponent(texto)}`;
+      window.open(url, '_blank');
+      renderSlots();
+    }
+
+    // formulário principal (enviar mensagem livre)
+    function enviarWhatsApp() {
+      const nome = document.getElementById('nome').value.trim();
+      const telefoneCliente = document.getElementById('telefone').value.trim();
+      const mensagem = document.getElementById('mensagem').value.trim();
+
+      if (!nome || !telefoneCliente || !mensagem) {
+        alert('Por favor, preencha todos os campos!');
+        return;
+      }
+
+      const texto = `Olá, meu nome é ${nome}. Meu WhatsApp é ${telefoneCliente}. ${mensagem}`;
+      const url = `https://wa.me/${meuWhats.replace(/[^0-9]/g,'')}?text=${encodeURIComponent(texto)}`;
+      window.open(url, '_blank');
+    }
+
+    // admin
+    document.getElementById('adminBtn').addEventListener('click', () => {
+      const senha = prompt('Digite a senha do admin:');
+      if (senha === 'admin123') {
+        document.getElementById('adminPanel').style.display = 'block';
+      } else {
+        alert('Senha incorreta');
+      }
+    });
+    document.getElementById('closeAdmin').addEventListener('click', () => {
+      document.getElementById('adminPanel').style.display = 'none';
+    });
+
+    // inicializa
+    renderSlots();
+
+  </script>
+</body>
+</html>
