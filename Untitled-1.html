@@ -173,16 +173,19 @@
           btn.textContent = `Reservado (${reservas[slot].nome || '—'})`;
           btn.disabled = true;
           btn.style.background = '#aa2b2b';
+          btn.title = 'Este horário já está reservado';
         } else if (pendentes[slot]) {
           btn.textContent = `Pendente: ${pendentes[slot].nome}`;
           btn.style.background = '#f39c12';
+          btn.disabled = true; // impede novo clique enquanto estiver pendente
+          btn.title = 'Solicitação pendente — aguarde confirmação';
         } else {
           btn.textContent = 'Reservar';
           btn.style.background = '#25D366';
           disponiveis++;
+          btn.disabled = false;
+          btn.onclick = () => requestSlot(slot); // só ativa para slots livres
         }
-
-        btn.onclick = () => requestSlot(slot);
 
         slotEl.appendChild(label);
         slotEl.appendChild(btn);
@@ -250,6 +253,18 @@
     }
 
     function requestSlot(slot) {
+      // bloqueia se já reservado ou pendente
+      const reservasCheck = getStorage(SLOT_KEY, {});
+      const pendCheck = getStorage(PENDING_KEY, {});
+      if (reservasCheck[slot] && reservasCheck[slot].status === 'reserved') {
+        alert('Desculpe, este horário já foi reservado.');
+        return;
+      }
+      if (pendCheck[slot]) {
+        alert('Já existe uma solicitação pendente para este horário. Aguarde a confirmação.');
+        return;
+      }
+
       // pega dados do formulário (o usuário deve preencher antes)
       const nome = document.getElementById('nome').value.trim();
       const telefoneCliente = document.getElementById('telefone').value.trim();
@@ -305,5 +320,4 @@
 
   </script>
 </body>
-
 </html>
