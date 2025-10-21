@@ -89,8 +89,12 @@
 
     <div class="horarios">
       <h2>Horários de Atendimento</h2>
-      <div id="slots" class="slots"></div>
+      <div id="weekCalendar" style="display:flex;justify-content:space-between;margin:0.5rem 0;gap:0.4rem;">
+        <!-- Dias da semana serão renderizados por JS -->
+      </div>
+       <div id="slots" class="slots"></div>
       <p id="summary"></p>
+      <p id="selectedDateLabel" style="color:#ccc;margin-top:.5rem;"></p>
       <button id="adminBtn" style="background:#444;width:auto;padding:.5rem;border-radius:6px;margin-top:1rem;">Área Admin</button>
 
       <div id="adminPanel" style="display:none;margin-top:1rem;background:#2b2b2b;padding:1rem;border-radius:8px;">
@@ -111,13 +115,79 @@
     // ======= Configuração de horários =======
     const SLOT_KEY = 'barbearia_reservas_v1';
     const PENDING_KEY = 'barbearia_pendentes_v1';
+    let selectedDate = null; // formato 'YYYY-MM-DD'
     const meuWhats = '+5527998183827'; // número do salão (com código do país+DDD)
 
-    // gera horários de 30 em 30 minutos entre 7:30 e 18:30
+    function formatDate(d) {
+      return d.toISOString().slice(0,10);
+    }
+    function getWeekDates() {
+      const today = new Date();
+      // encontrar segunda-feira da semana atual
+      const day = today.getDay(); // 0=domingo
+      const diffToMonday = (day === 0) ? -6 : 1 - day;
+      const monday = new Date(today);
+      monday.setDate(today.getDate() + diffToMonday);
+      const dates = [];
+      for (let i=0;i<6;i++) { // seg-sab
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + i);
+        dates.push(d);
+      }
+      return dates;
+    }
+
+    function renderWeekCalendar() {
+      const cal = document.getElementById('weekCalendar');
+      cal.innerHTML = '';
+      const dates = getWeekDates();
+      const reservasAll = getStorage(SLOT_KEY, {});
+      dates.forEach(d => {
+        const dateKey = formatDate(d);
+        const box = document.createElement('div');
+        box.style.flex = '1';
+        box.style.padding = '0.5rem';
+        box.style.borderRadius = '6px';
+        box.style.textAlign = 'center';
+        box.style.cursor = 'pointer';
+        box.style.background = '#2b2b2b';
+        box.style.border = '1px solid #3a3a3a';
+        const short = d.toLocaleDateString('pt-BR',{weekday:'short'});
+        box.innerHTML = `<div style="font-weight:bold;">${short}</div><div style="font-size:0.85rem;margin-top:0.3rem;">${d.getDate()}</div>`;
+        // marcar se já tiver reservas para essa data
+        const dayReservations = reservasAll[dateKey] || {};
+        const reservedCount = Object.keys(dayReservations).length;
+        if (reservedCount>0) {
+          const dot = document.createElement('div');
+          dot.style.width = '10px';
+          dot.style.height = '10px';
+          dot.style.background = '#aa2b2b';
+          dot.style.borderRadius = '50%';
+          dot.style.margin = '6px auto 0';
+          box.appendChild(dot);
+        }
+        box.onclick = () => { selectedDate = dateKey; renderSlots(); renderWeekCalendar(); };
+        if (selectedDate === null) selectedDate = formatDate(dates[0]);
+        if (selectedDate === dateKey) {
+          box.style.outline = '2px solid #f5b642';
+        }
+        cal.appendChild(box);
+      });
+      document.getElementById('selectedDateLabel').textContent = `Dia selecionado: ${selectedDate}`;
+    }
+
+    function getStorage(key, defaultValue) {
+      try {
+        return JSON.parse(localStorage.getItem(key)) || defaultValue;
+      } catch { return defaultValue; }
+    }
+    function setStorage(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+
     function gerarHorarios() {
+      // gera horários de 30 em 30 minutos entre 8:00 e 18:30
       const slots = [];
       const start = new Date();
-      start.setHours(7,30,0,0);
+      start.setHours(8,0,0,0); // começa às 08:00
       const end = new Date();
       end.setHours(18,30,0,0);
       let cur = new Date(start);
@@ -130,20 +200,15 @@
       return slots;
     }
 
-    function getStorage(key, defaultValue) {
-      try {
-        return JSON.parse(localStorage.getItem(key)) || defaultValue;
-      } catch { return defaultValue; }
-    }
-    function setStorage(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
-
     function renderSlots() {
       const slotsDiv = document.getElementById('slots');
       const adminSlots = document.getElementById('adminSlots');
       const pendingList = document.getElementById('pendingList');
       const slots = gerarHorarios();
-      const reservas = getStorage(SLOT_KEY, {});
-      const pendentes = getStorage(PENDING_KEY, {});
+      const reservasAll = getStorage(SLOT_KEY, {}); // { 'YYYY-MM-DD': { '07:30': {status:'reserved', nome...}}}
+      const pendAll = getStorage(PENDING_KEY, {});
+      const reservas = reservasAll[selectedDate] || {};
+      const pendentes = pendAll[selectedDate] || {};
 
       slotsDiv.innerHTML = '';
       adminSlots.innerHTML = '';
@@ -202,17 +267,19 @@
         aBtn.textContent = status === 'reserved' ? 'Liberar' : 'Marcar Reservado';
         aBtn.onclick = () => {
           if (status === 'reserved') {
-            delete reservas[slot];
-            setStorage(SLOT_KEY, reservas);
+            // remove reserva do dia
+            const all = getStorage(SLOT_KEY, {});
+            if (all[selectedDate]) { delete all[selectedDate][slot]; setStorage(SLOT_KEY, all); }
             renderSlots();
           } else {
             const nome = prompt('Nome do cliente que confirmou (SIM):');
-            reservas[slot] = { status: 'reserved', nome: nome || '—', confirmAt: new Date().toISOString() };
+            const all = getStorage(SLOT_KEY, {});
+            if (!all[selectedDate]) all[selectedDate] = {};
+            all[selectedDate][slot] = { status: 'reserved', nome: nome || '—', confirmAt: new Date().toISOString() };
             // limpar pendente se existir
-            const p = getStorage(PENDING_KEY, {});
-            delete p[slot];
-            setStorage(PENDING_KEY, p);
-            setStorage(SLOT_KEY, reservas);
+            const pAll = getStorage(PENDING_KEY, {});
+            if (pAll[selectedDate]) { delete pAll[selectedDate][slot]; setStorage(PENDING_KEY, pAll); }
+            setStorage(SLOT_KEY, all);
             renderSlots();
           }
         };
@@ -221,13 +288,13 @@
       });
 
       // render pendentes
-      const pend = getStorage(PENDING_KEY, {});
-      const keys = Object.keys(pend);
-      if (keys.length === 0) {
-        pendingList.innerHTML = '<p style="color:#bbb;">Nenhuma solicitação pendente.</p>';
+      const pendDay = getStorage(PENDING_KEY, {})[selectedDate] || {};
+      const pendKeys = Object.keys(pendDay);
+      if (pendKeys.length === 0) {
+        pendingList.innerHTML = '<p style="color:#bbb;">Nenhuma solicitação pendente para este dia.</p>';
       } else {
-        keys.forEach(k => {
-          const item = pend[k];
+        pendKeys.forEach(k => {
+          const item = pendDay[k];
           const row = document.createElement('div');
           row.style.borderTop = '1px solid #3a3a3a';
           row.style.padding = '0.5rem 0';
@@ -236,32 +303,38 @@
           btnConfirm.textContent = 'Confirmar (marcar reservado)';
           btnConfirm.style.marginLeft = '0.5rem';
           btnConfirm.onclick = () => {
-            const reservas2 = getStorage(SLOT_KEY, {});
-            reservas2[k] = { status: 'reserved', nome: item.nome, confirmAt: new Date().toISOString() };
-            setStorage(SLOT_KEY, reservas2);
-            const p2 = getStorage(PENDING_KEY, {});
-            delete p2[k];
-            setStorage(PENDING_KEY, p2);
+            const all = getStorage(SLOT_KEY, {});
+            if (!all[selectedDate]) all[selectedDate] = {};
+            all[selectedDate][k] = { status: 'reserved', nome: item.nome, confirmAt: new Date().toISOString() };
+            setStorage(SLOT_KEY, all);
+            const pAll = getStorage(PENDING_KEY, {});
+            delete pAll[selectedDate][k];
+            setStorage(PENDING_KEY, pAll);
             renderSlots();
+            renderWeekCalendar();
           };
           row.appendChild(btnConfirm);
           pendingList.appendChild(row);
         });
       }
 
-      document.getElementById('summary').textContent = `Disponíveis hoje: ${disponiveis} / ${slots.length}`;
+      document.getElementById('summary').textContent = `Disponíveis: ${disponiveis} / ${slots.length}`;
+      document.getElementById('selectedDateLabel').textContent = `Dia selecionado: ${selectedDate}`;
+      renderWeekCalendar();
     }
 
     function requestSlot(slot) {
-      // bloqueia se já reservado ou pendente
-      const reservasCheck = getStorage(SLOT_KEY, {});
-      const pendCheck = getStorage(PENDING_KEY, {});
-      if (reservasCheck[slot] && reservasCheck[slot].status === 'reserved') {
-        alert('Desculpe, este horário já foi reservado.');
+      // bloqueia se já reservado ou pendente para a data selecionada
+      const reservasAll = getStorage(SLOT_KEY, {});
+      const pendAll = getStorage(PENDING_KEY, {});
+      const reservasDay = reservasAll[selectedDate] || {};
+      const pendDay = pendAll[selectedDate] || {};
+      if (reservasDay[slot] && reservasDay[slot].status === 'reserved') {
+        alert('Desculpe, este horário já foi reservado para este dia.');
         return;
       }
-      if (pendCheck[slot]) {
-        alert('Já existe uma solicitação pendente para este horário. Aguarde a confirmação.');
+      if (pendDay[slot]) {
+        alert('Já existe uma solicitação pendente para este horário neste dia. Aguarde a confirmação.');
         return;
       }
 
@@ -275,12 +348,13 @@
         return;
       }
 
-      // salva como pendente para o admin verificar
+      // salva como pendente para o admin verificar (por data)
       const pend = getStorage(PENDING_KEY, {});
-      pend[slot] = { nome, telefone: telefoneCliente, mensagem, requestedAt: new Date().toISOString() };
+      if (!pend[selectedDate]) pend[selectedDate] = {};
+      pend[selectedDate][slot] = { nome, telefone: telefoneCliente, mensagem, requestedAt: new Date().toISOString() };
       setStorage(PENDING_KEY, pend);
 
-      const texto = `Olá, gostaria de reservar o horário ${slot} na Barbearia do Luiz.\nNome: ${nome}.\nWhatsApp: ${telefoneCliente}.\nMensagem: ${mensagem || '-'}\nPor favor, responda SIM para confirmar.`;
+      const texto = `Olá, gostaria de reservar o horário ${slot} na Barbearia do Luiz em ${selectedDate}.\nNome: ${nome}.\nWhatsApp: ${telefoneCliente}.\nMensagem: ${mensagem || '-'}\nPor favor, responda SIM para confirmar.`;
       const url = `https://wa.me/${meuWhats.replace(/[^0-9]/g,'')}?text=${encodeURIComponent(texto)}`;
       window.open(url, '_blank');
       renderSlots();
@@ -313,6 +387,12 @@
     });
     document.getElementById('closeAdmin').addEventListener('click', () => {
       document.getElementById('adminPanel').style.display = 'none';
+    });
+
+    // instrução rápida
+    document.addEventListener('DOMContentLoaded', () => {
+      const containerTitle = document.querySelector('.horarios h2');
+      if (containerTitle) containerTitle.textContent = 'Horários de Atendimento — selecione um dia e um horário (08:00–18:30)';
     });
 
     // inicializa
